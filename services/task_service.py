@@ -29,7 +29,10 @@ class TaskService:
         await self._assert_user_exists("Creator user", data.created_by_id)
 
         task = Task(id=str(uuid.uuid4()), **data.model_dump())
-        return await self.repo.create(task)
+        task = await self.repo.create(task)
+        # Re-fetch with relationships eagerly loaded so Pydantic can access
+        # task.assignee and task.creator without triggering a lazy-load.
+        return await self.repo.get_by_id_with_relations(task.id)
 
     async def get(self, task_id: str) -> Task:
         task = await self.repo.get_by_id_with_relations(task_id)

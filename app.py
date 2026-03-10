@@ -86,7 +86,8 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         # Basic CSP — tighten for your deployment
         response.headers["Content-Security-Policy"] = "default-src 'none'; frame-ancestors 'none'"
         # Remove server fingerprinting header
-        response.headers.pop("Server", None)
+        if "server" in response.headers:
+            del response.headers["server"]
         return response
 
 
