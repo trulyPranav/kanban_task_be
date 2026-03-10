@@ -1,5 +1,4 @@
 import logging
-import ssl
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -22,9 +21,10 @@ def _build_connect_args() -> dict:
         # Prevent SQLite threading errors in async context
         return {"check_same_thread": False}
     if settings.DB_SSL:
-        # Required for cloud-hosted PostgreSQL (Supabase, Neon, RDS, etc.)
-        ssl_ctx = ssl.create_default_context()
-        return {"ssl": ssl_ctx}
+        # Supabase Transaction Pooler uses an intermediate CA not trusted by
+        # Windows' default cert store, so we use ssl="require" which enforces
+        # encryption without strict certificate chain verification.
+        return {"ssl": "require"}
     return {}
 
 
