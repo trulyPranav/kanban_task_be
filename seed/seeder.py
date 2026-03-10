@@ -53,7 +53,18 @@ def _future(end: str = "+3M") -> datetime:
 # ─── Seeder ───────────────────────────────────────────────────────────────────
 
 async def seed() -> None:
-    engine = create_async_engine(settings.DATABASE_URL, echo=False)
+    import ssl as _ssl
+    _ssl_ctx = _ssl.create_default_context()
+    _ssl_ctx.check_hostname = False
+    _ssl_ctx.verify_mode = _ssl.CERT_NONE
+    _connect_args: dict = {"statement_cache_size": 0}
+    if "postgresql" in settings.DATABASE_URL:
+        _connect_args["ssl"] = _ssl_ctx
+    engine = create_async_engine(
+        settings.DATABASE_URL,
+        echo=False,
+        connect_args=_connect_args,
+    )
 
     # Ensure tables exist
     async with engine.begin() as conn:

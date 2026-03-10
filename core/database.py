@@ -1,4 +1,5 @@
 import logging
+import ssl
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -21,11 +22,16 @@ def _build_connect_args() -> dict:
         # Prevent SQLite threading errors in async context
         return {"check_same_thread": False}
     if settings.DB_SSL:
-        # Supabase Transaction Pooler uses an intermediate CA not trusted by
-        # Windows' default cert store, so we use ssl="require" which enforces
-        # encryption without strict certificate chain verification.
-        return {"ssl": "require"}
-    return {}
+        # Supabase Transaction Pooler sits behind AWS infrastructure whose
+        # intermediate CA is not in Python/Windows' default trust store.
+        # We require TLS encryption but skip chain verification — the
+        # connection is still encrypted; only the cert identity check is relaxed.
+        ssl_ctx = ssl.create_default_context()
+        ssl_ctx.check_hostname = False
+        ssl_ctx.verify_mode = ssl.CERT_NONE
+        return {"ssl": ssl_ctx, "statement_cache_size": 0}
+    # Supabase Transaction Pooler (PgBouncer) doesn't support prepared statements.
+    return {"statement_cache_size": 0}
 
 
 # Pool settings only apply to PostgreSQL; SQLAlchemy ignores them for SQLite.
