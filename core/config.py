@@ -8,6 +8,8 @@ class Settings(BaseSettings):
     DEBUG: bool = False
 
     DATABASE_URL: str = "sqlite+aiosqlite:///./tasks.db"
+    # Set to true for any cloud Postgres that requires TLS (e.g. Supabase, Neon, RDS)
+    DB_SSL: bool = True
 
     RATE_LIMIT_DEFAULT: str = "60/minute"
 

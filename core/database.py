@@ -1,4 +1,5 @@
 import logging
+import ssl
 from collections.abc import AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -14,11 +15,37 @@ logger = logging.getLogger(__name__)
 # ─── Engine ───────────────────────────────────────────────────────────────────
 _is_sqlite = "sqlite" in settings.DATABASE_URL
 
+
+def _build_connect_args() -> dict:
+    """Return driver-specific connect_args based on the configured database URL."""
+    if _is_sqlite:
+        # Prevent SQLite threading errors in async context
+        return {"check_same_thread": False}
+    if settings.DB_SSL:
+        # Required for cloud-hosted PostgreSQL (Supabase, Neon, RDS, etc.)
+        ssl_ctx = ssl.create_default_context()
+        return {"ssl": ssl_ctx}
+    return {}
+
+
+# Pool settings only apply to PostgreSQL; SQLAlchemy ignores them for SQLite.
+_pool_kwargs = (
+    {}
+    if _is_sqlite
+    else {
+        "pool_size": 5,          # Supabase free tier allows ~15 connections; keep headroom
+        "max_overflow": 10,      # Extra connections allowed beyond pool_size under burst load
+        "pool_timeout": 30,      # Seconds to wait for a free connection before raising
+        "pool_recycle": 1800,    # Recycle connections after 30 min to avoid stale TCP issues
+        "pool_pre_ping": True,   # Cheaply verify a connection is alive before using it
+    }
+)
+
 engine = create_async_engine(
     settings.DATABASE_URL,
     echo=settings.DEBUG,
-    # SQLite-specific: keep a single connection to avoid locking issues
-    connect_args={"check_same_thread": False} if _is_sqlite else {},
+    connect_args=_build_connect_args(),
+    **_pool_kwargs,
 )
 
 AsyncSessionLocal = async_sessionmaker(

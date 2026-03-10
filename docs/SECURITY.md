@@ -155,6 +155,29 @@ All input is validated by **Pydantic v2** before it reaches the service layer. N
 
 ## 6. Database Layer
 
+### Driver & host
+
+The backend connects to **Supabase (PostgreSQL 15)** via the `asyncpg` async driver through Supabase's **Transaction Pooler** (port `6543`). This mode is recommended for stateless API servers because each request borrows a connection from the pool rather than maintaining a persistent session.
+
+| Setting | Value |
+|---|---|
+| Driver | `asyncpg` |
+| Host | `aws-0-<region>.pooler.supabase.com:6543` (Transaction Pooler) |
+| TLS | Enforced — `DB_SSL=true` in `.env` injects a `ssl.create_default_context()` into the asyncpg connection |
+| Configured via | `DATABASE_URL` + `DB_SSL` environment variables |
+
+### Connection pool
+
+SQLAlchemy manages an async connection pool to avoid the overhead of a new TLS handshake per request.
+
+| Parameter | Value | Reason |
+|---|---|---|
+| `pool_size` | `5` | Baseline connections kept alive; Supabase free tier allows ~15 total |
+| `max_overflow` | `10` | Extra connections permitted under burst load (total ceiling: 15) |
+| `pool_timeout` | `30 s` | Raises `TimeoutError` rather than queuing indefinitely if all connections are busy |
+| `pool_recycle` | `1800 s` | Recycles connections every 30 min to prevent stale TCP issues behind NAT/load balancers |
+| `pool_pre_ping` | `true` | Issues a cheap `SELECT 1` before each checkout to detect and replace dead connections silently |
+
 ### Async ORM
 
 All database access goes through SQLAlchemy 2.0 async ORM with parameterised queries. The repository pattern keeps raw query logic isolated from business logic and routers.
@@ -205,7 +228,7 @@ All `4xx` errors return `{ "detail": "..." }` — a single string. `422` validat
 | # | Vulnerability | Status | Implementation |
 |---|---|---|---|
 | A01 | Broken Access Control | ⚠️ Partial | No auth layer yet — see §9. FK-level isolation prevents cross-task comment operations. |
-| A02 | Cryptographic Failures | ✅ Addressed | No secrets stored; HSTS header enforces TLS in transit; `.env` is git-ignored |
+| A02 | Cryptographic Failures | ✅ Addressed | No secrets stored; HSTS header enforces TLS in transit; `DB_SSL=true` enforces TLS for all database connections to Supabase; `.env` is git-ignored |
 | A03 | Injection | ✅ Addressed | SQLAlchemy ORM parameterised queries; Pydantic input validation on all fields |
 | A04 | Insecure Design | ✅ Addressed | Layered architecture (router → service → repository); rate limiting; input constraints |
 | A05 | Security Misconfiguration | ✅ Addressed | Security headers middleware; `Server` header stripped; CORS origin allowlist |
@@ -262,9 +285,15 @@ Add `redis` to `requirements.txt`.
 
 ### 9.5 Database
 
-- Switch `DATABASE_URL` to PostgreSQL (`postgresql+asyncpg://...`) for production workloads.
-- Enable connection pooling (PgBouncer or SQLAlchemy pool settings).
-- Take regular automated backups.
+✅ **Implemented** — the backend now connects to **Supabase (PostgreSQL)** via `asyncpg` with TLS enforced and a tuned SQLAlchemy connection pool (see §6).
+
+Remaining actions:
+- Enable **Point-in-Time Recovery (PITR)** in the Supabase dashboard for automated backups (available on Pro tier).
+- On the free tier, export a manual backup periodically via `pg_dump`:
+  ```bash
+  pg_dump "$(grep DATABASE_URL .env | cut -d= -f2-)" > backup_$(date +%F).sql
+  ```
+- Rotate the database password in Supabase Dashboard → Settings → Database → Reset database password, then update `DATABASE_URL` in `.env`.
 
 ### 9.6 Dependency Auditing
 
